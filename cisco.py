@@ -92,7 +92,7 @@ def run_compliance_check():
             all_results.append(device_data)
             
         except Exception as e:
-            print(f"❌ ÉCHEC sur {device['ip']}. Erreur: {e}")
+            print(f"ÉCHEC sur {device['ip']}. Erreur: {e}")
             device_data.update({'Audit_Status': 'FAILED', 'IOS_Version': 'N/A', 'Telnet_Status': 'N/A', 'Min_Pass_Len': 'N/A', 'NTP_Status': 'N/A'})
             all_results.append(device_data)
 
@@ -103,7 +103,7 @@ def run_compliance_check():
         writer.writeheader()
         writer.writerows(all_results)
         
-    print(f"\n✅ Audit terminé. Rapport synthétique enregistré dans {filename}")
+    print(f"\nAudit terminé. Rapport synthétique enregistré dans {filename}")
 
 
 if __name__ == "__main__":
