@@ -116,7 +116,7 @@ def run_compliance_check():
             })
             all_results.append(device_data)
 
-    # Write summary CSV
+    # Generate CSV
     filename = 'security_audit_results_summary.csv'
     with open(filename, 'w', newline='') as csvfile:
         fieldnames = ['Device_IP', 'Audit_Status', 'IOS_Version', 'Telnet_Status', 'Min_Pass_Len', 'NTP_Status']
@@ -127,6 +127,4 @@ def run_compliance_check():
     print(f"\n Audit terminé. Rapport synthétique enregistré dans {filename}")
 
 if __name__ == "__main__":
-    run_compliance_check()
-
     run_compliance_check()
