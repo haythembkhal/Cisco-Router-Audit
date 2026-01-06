@@ -18,7 +18,7 @@ Netmiko
 Install Netmiko:
 Shellpip install netmikoAfficher plus de lignes
 
-How to use
+How to use :
 
 Edit the DEVICES list in the script with your device IPs and usernames.
 Run the script:
@@ -26,6 +26,7 @@ Run the script:
 python cisco.py
 
 Enter your SSH and enable passwords when prompted.
+
 Check the output file:
 security_audit_results_summary.csv
 
@@ -33,7 +34,9 @@ security_audit_results_summary.csv
 
 Example CSV:
 Device_IP,Audit_Status,IOS_Version,Telnet_Status,Min_Pass_Len,NTP_Status
+
 192.168.1.10,SUCCESS,15.2(4)M6,Secure (SSH Enabled),10,Synchronized
+
 192.168.1.11,SUCCESS,15.1(3)T,Insecure (Telnet Enabled),8,Unsynchronized
 
 
