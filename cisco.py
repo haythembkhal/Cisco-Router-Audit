@@ -1,4 +1,3 @@
-
 import csv
 from netmiko import ConnectHandler
 from getpass import getpass
@@ -11,120 +10,146 @@ DEVICES = [
     {'ip': '192.168.1.11', 'username': 'admin'},
 ]
 
-# Commands to run on IOS
+# SECURITY COMMANDS FOR CISCO ASA
 SECURITY_AUDIT_COMMANDS = [
-    "show version | include Version",
-    "show line vty",
-    "show ip http server status",
-    "show running-config | include security passwords min-length",
-    "show running-config | include password encryption",
-    "show ntp status",
-    "show logging",
-    "show running-config | include service pad",
-    "show running-config | include username",
+    "show running-config ssh",
+    "show running-config telnet",
+    "show running-config http",
+    "show running-config ssl",
+    "show running-config logging",
+    "show run | include threat-detection",
+    "show run | include ikev",
+    "show version"
 ]
 
-def parse_ios_output(output):
+def parse_asa_output(output):
     """
-    Parse raw CLI output into a small summary dictionary.
-    Assumes all command outputs are concatenated in one string.
+    Extract key security posture metrics from Cisco ASA output.
     """
+
     data = {
-        'IOS_Version': 'N/A',
-        'Telnet_Status': 'N/A',
-        'Min_Pass_Len': 'N/A',
-        'NTP_Status': 'N/A'
+        'ASA_Version': 'N/A',
+        'SSH_Encryption': 'N/A',
+        'SSH_KEX': 'N/A',
+        'Telnet_Enabled': 'No',
+        'TLS_Version': 'N/A',
+        'Logging_Enabled': 'No',
+        'Threat_Detection': 'No',
+        'Weak_VPN_Crypto': 'No',
     }
 
-    # IOS version
-    version_match = re.search(r'Version\s+([\d.]+[\w()]+)', output)
-    if version_match:
-        data['IOS_Version'] = version_match.group(1).strip()
+    # ASA Version
+    ver = re.search(r"Cisco Adaptive Security Appliance Software Version ([\d\.]+)", output)
+    if ver:
+        data["ASA_Version"] = ver.group(1)
 
-    # VTY / Telnet / SSH status (best effort from mixed output)
-    if "Line(s) not in use" in output:
-        data['Telnet_Status'] = 'Secure (No Active VTY)'
-    vty_config_match = re.search(r'Line\s+\d+\s+Transport\s+input\s+(\w+)', output, re.IGNORECASE)
-    if vty_config_match:
-        input_type = vty_config_match.group(1).lower()
-        if 'telnet' in input_type:
-            data['Telnet_Status'] = 'Insecure (Telnet Enabled)'
-        elif 'ssh' in input_type or 'all' in input_type:
-            data['Telnet_Status'] = 'Secure (SSH Enabled)'
+    # SSH encryption ciphers
+    ssh_enc = re.search(r"ssh cipher encryption (.+)", output)
+    if ssh_enc:
+        data["SSH_Encryption"] = ssh_enc.group(1).strip()
 
-    # Min password length
-    min_pass_match = re.search(r'security passwords min-length (\d+)', output)
-    if min_pass_match:
-        data['Min_Pass_Len'] = min_pass_match.group(1)
+    # SSH KEX
+    ssh_kex = re.search(r"ssh key-exchange group (.+)", output)
+    if ssh_kex:
+        data["SSH_KEX"] = ssh_kex.group(1).strip()
 
-    # NTP state
-    if "Clock is synchronized" in output:
-        data['NTP_Status'] = 'Synchronized'
-    elif "Clock is unsynchronized" in output:
-        data['NTP_Status'] = 'Unsynchronized'
+    # Telnet detection
+    if "telnet " in output:
+        data["Telnet_Enabled"] = "Yes"
+
+    # TLS/SSL version
+    ssl_ver = re.search(r"ssl server-version (.+)", output)
+    if ssl_ver:
+        data["TLS_Version"] = ssl_ver.group(1).strip()
+
+    # Logging
+    if "logging enable" in output:
+        data["Logging_Enabled"] = "Yes"
+
+    # Threat Detection
+    if "threat-detection" in output:
+        data["Threat_Detection"] = "Enabled"
+
+    # Weak crypto detection (3DES, MD5, DH2)
+    if re.search(r"3des|md5|group2", output, re.IGNORECASE):
+        data["Weak_VPN_Crypto"] = "Yes"
 
     return data
 
+
 def run_compliance_check():
-    # Credentials prompt
-    print("\n--- Saisie des identifiants ---")
+    print("\n--- Enter credentials ---")
     try:
-        password = getpass("Entrez le mot de passe SSH: ")
-        secret = getpass("Entrez le mot de passe 'enable' (secret): ")
+        password = getpass("SSH Password: ")
+        enable_secret = getpass("Enable Secret (if needed): ")
     except EOFError:
-        print("\nErreur de saisie. Arrêt du script.")
+        print("\nInput error. Exiting.")
         sys.exit(1)
 
     all_results = []
 
     for device in DEVICES:
-        print(f"\n--- Connexion à {device['ip']} en cours... ---")
+        print(f"\n--- Connecting to ASA {device['ip']} ---")
 
-        # Netmiko connection args
-        ios_conn_details = {
-            "device_type": "cisco_ios",
+        asa_conn = {
+            "device_type": "cisco_asa",
             "ip": device['ip'],
             "username": device['username'],
             "password": password,
-            "secret": secret
+            "secret": enable_secret
         }
 
-        device_data = {'Device_IP': device['ip']}
+        device_data = {"Device_IP": device['ip']}
 
         try:
-            # Connect and run all commands as one string (original behavior)
-            net_connect = ConnectHandler(**ios_conn_details)
+            net_connect = ConnectHandler(**asa_conn)
+            net_connect.enable()
+
+            # Run all commands in one combined string
             output = net_connect.send_command("\n".join(SECURITY_AUDIT_COMMANDS))
             net_connect.disconnect()
 
-            # Parse combined output
-            parsed_data = parse_ios_output(output)
-
-            device_data.update(parsed_data)
-            device_data['Audit_Status'] = 'SUCCESS'
+            parsed = parse_asa_output(output)
+            device_data.update(parsed)
+            device_data["Audit_Status"] = "SUCCESS"
             all_results.append(device_data)
 
         except Exception as e:
-            # Minimal failure record per device
-            print(f" ÉCHEC sur {device['ip']}. Erreur: {e}")
+            print(f"FAILED on {device['ip']} → {e}")
             device_data.update({
-                'Audit_Status': 'FAILED',
-                'IOS_Version': 'N/A',
-                'Telnet_Status': 'N/A',
-                'Min_Pass_Len': 'N/A',
-                'NTP_Status': 'N/A'
+                "Audit_Status": "FAILED",
+                "ASA_Version": "N/A",
+                "SSH_Encryption": "N/A",
+                "SSH_KEX": "N/A",
+                "Telnet_Enabled": "N/A",
+                "TLS_Version": "N/A",
+                "Logging_Enabled": "N/A",
+                "Threat_Detection": "N/A",
+                "Weak_VPN_Crypto": "N/A",
             })
             all_results.append(device_data)
 
-    # Generate CSV
-    filename = 'security_audit_results_summary.csv'
-    with open(filename, 'w', newline='') as csvfile:
-        fieldnames = ['Device_IP', 'Audit_Status', 'IOS_Version', 'Telnet_Status', 'Min_Pass_Len', 'NTP_Status']
+    # Write CSV output
+    filename = "asa_security_audit_results.csv"
+    with open(filename, "w", newline="") as csvfile:
+        fieldnames = [
+            "Device_IP",
+            "Audit_Status",
+            "ASA_Version",
+            "SSH_Encryption",
+            "SSH_KEX",
+            "Telnet_Enabled",
+            "TLS_Version",
+            "Logging_Enabled",
+            "Threat_Detection",
+            "Weak_VPN_Crypto",
+        ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(all_results)
 
-    print(f"\n Audit terminé. Rapport synthétique enregistré dans {filename}")
+    print(f"\n✔ Audit complete. CSV saved as: {filename}")
+
 
 if __name__ == "__main__":
     run_compliance_check()
